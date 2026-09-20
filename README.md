@@ -82,15 +82,16 @@ A customer support bot can accidentally issue a ₹75,000 refund instead of ₹5
 
 ## 🚀 Live AWS Deployment & Infrastructure
 
-The live backend is provisioned and running in **`us-east-1`**:
+The entire platform (Frontend + Backend) is 100% hosted and running on **AWS** (`us-east-1`):
 
-* **API Gateway Base URL**: `https://o8boudk53e.execute-api.us-east-1.amazonaws.com/prod`
-* **DynamoDB Audit Ledger**: `agentguard-audit-log`
-* **DynamoDB Approval Store**: `agentguard-pending-approvals`
-* **Step Functions State Machine**: `arn:aws:states:us-east-1:360908957446:stateMachine:agentguard-approval-workflow`
-* **SNS Notifications Topic**: `arn:aws:sns:us-east-1:360908957446:agentguard-approval-notifications`
-* **Cognito User Pool ID**: `us-east-1_mnuq0qSBy`
-* **Artifacts S3 Bucket**: `agentguard-artifacts-360908957446-us-east-1`
+* 🖥️ **Live Web Dashboard (AWS S3)**: **[http://agentguard-artifacts-360908957446-us-east-1.s3-website-us-east-1.amazonaws.com](http://agentguard-artifacts-360908957446-us-east-1.s3-website-us-east-1.amazonaws.com)**
+* 🌐 **API Gateway Base URL**: `https://o8boudk53e.execute-api.us-east-1.amazonaws.com/prod`
+* 💾 **DynamoDB Audit Ledger**: `agentguard-audit-log`
+* ⏳ **DynamoDB Approval Store**: `agentguard-pending-approvals`
+* 🔄 **Step Functions State Machine**: `arn:aws:states:us-east-1:360908957446:stateMachine:agentguard-approval-workflow`
+* 📬 **SNS Notifications Topic**: `arn:aws:sns:us-east-1:360908957446:agentguard-approval-notifications`
+* 👤 **Cognito User Pool ID**: `us-east-1_mnuq0qSBy`
+* 🪣 **S3 Website & Artifacts Bucket**: `agentguard-artifacts-360908957446-us-east-1`
 
 ---
 
