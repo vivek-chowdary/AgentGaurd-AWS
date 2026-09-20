@@ -124,6 +124,103 @@ The entire platform (Frontend + Backend) is 100% hosted and running on **AWS** (
 
 ---
 
+## 📦 "Build-it" vs "Ship-it" — What Model is AgentGuard?
+
+**AgentGuard is a "Ship-it" Ready Enterprise Authorization Middleware.**
+
+It is not merely a toy prompt wrapper or build-time library; it is a **fully deployed, cloud-native security sidecar/proxy**.
+* **Deploy Once, Protect Everywhere**: The infrastructure runs autonomously in your AWS account (API Gateway, Step Functions, DynamoDB, Lambdas).
+* **Decoupled Security**: Your data science or engineering teams can freely iterate on prompts, models, and agents (Bedrock, LangChain, CrewAI, AutoGen) while your SecOps/compliance teams manage Cedar authorization policies independently.
+* **Non-Invasive Architecture**: You don't rewrite your tools. AgentGuard sits in front of existing tool APIs like an API firewall.
+
+---
+
+## 🔌 How External Developers Connect Any AI Agent
+
+If you already have an AI agent running on **LangChain, CrewAI, AutoGen, or Amazon Bedrock**, you integrate AgentGuard in 3 simple steps:
+
+```python
+import requests
+
+AGENTGUARD_API = "https://o8boudk53e.execute-api.us-east-1.amazonaws.com/prod"
+
+def guard_tool(tool_name: str, params: dict, agent_id: str = "customer-support-agent"):
+    """
+    Wrap ANY agent tool with AgentGuard prior to execution.
+    """
+    # 1. Intercept BEFORE calling the real tool
+    response = requests.post(f"{AGENTGUARD_API}/interceptor", json={
+        "tool_name": tool_name,
+        "tool_parameters": params,
+        "agent_id": agent_id
+    })
+    verdict = response.json() # ALLOW, REQUIRE_APPROVAL, or DENY
+
+    # 2. Act based on Cedar evaluation
+    if verdict.get("decision") == "ALLOW":
+        return execute_real_tool(tool_name, params)
+    
+    elif verdict.get("decision") == "REQUIRE_APPROVAL":
+        return f"⏳ Action paused: Requires human approval. Tracking ID: {verdict.get('approval_id')}"
+    
+    else: # DENY
+        return f"🚫 Security Alert: Action BLOCKED by Cedar policy: {verdict.get('reason')}"
+```
+
+---
+
+## ✍️ How to Author & Push Custom Cedar Policies
+
+**Cedar is completely dynamic — you can write rules for any tool, attribute, or context.**
+
+### 1. Anatomy of a Cedar Policy
+* **`principal`**: Who is acting (e.g., `Agent::"BillingBot"` or user role).
+* **`action`**: Which tool is being triggered (e.g., `Action::"issue_refund"`, `Action::"restart_ec2"`).
+* **`resource`**: The target entity (e.g., `Customer::"C123"`, `Server::"prod-db"`).
+* **`context`**: Dynamic parameters passed during invocation (`amount`, `customer_tier`, `time`, `department`).
+
+### 2. Examples of Custom Policies
+```cedar
+// Example A: Higher limits for VIP customers
+permit(
+  principal,
+  action == Action::"issue_refund",
+  resource
+) when {
+  context.customer_tier == "VIP" &&
+  context.amount <= 25000
+};
+
+// Example B: Restrict external communications to business hours (9 AM - 6 PM)
+permit(
+  principal,
+  action == Action::"send_email",
+  resource
+) when {
+  context.current_hour >= 9 &&
+  context.current_hour <= 18 &&
+  context.approval_status == "APPROVED"
+};
+
+// Example C: Explicit forbid (Forbid strictly overrides any permit)
+forbid(
+  principal,
+  action == Action::"drop_database",
+  resource
+);
+```
+
+### 3. How to Push New Policies
+* **Method 1 (GitOps / File)**: Add your policy to `backend/policies/default_policies.cedar` and run:
+  ```bash
+  AWS_REGION=us-east-1 python3 scripts/seed_policies.py
+  ```
+* **Method 2 (Dynamic REST API)**: Post new policies programmatically to the live API:
+  `POST https://o8boudk53e.execute-api.us-east-1.amazonaws.com/prod/policies`
+* **Method 3 (SecOps Dashboard)**: Inspect active policies in real time from the Cedar Policies tab on the dashboard.
+
+---
+
 ## 🔮 Roadmap & Next Improvements
 
 1. **Multi-Agent Fleet Governance**: Register and manage dozens of AI agents across departments (HR, Finance, Support) with isolated, per-agent Cedar policy stores.
