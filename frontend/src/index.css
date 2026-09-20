@@ -1,0 +1,158 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ═══════════════════════════════════════════════════════════
+   AGENTGUARD HIGH-DEFINITION NEUROMORPHIC DESIGN SYSTEM
+   Deep sculpted tactile depth, crystal-clear boundaries, monochrome precision.
+   ═══════════════════════════════════════════════════════════ */
+
+:root {
+  --bg-body: #dde2ea;
+  --bg-panel: #e6ebf3;
+  --bg-card: #edf1f7;
+  --bg-inset: #d2d8e4;
+  --border-panel: #bcc6d6;
+  --border-card: #c4cedc;
+  --border-subtle: #cbd4e2;
+  --border-inset: #b2bdcf;
+  --text-main: #0c0d0e;
+  --text-muted: #4b5563;
+  --text-dim: #6b7280;
+
+  /* Neumorphic shadow profiles - Light Mode (Pronounced & Sculpted) */
+  --nm-shadow-panel: 9px 9px 20px rgba(150, 163, 185, 0.7), -9px -9px 20px rgba(255, 255, 255, 0.98);
+  --nm-shadow-card: 6px 6px 14px rgba(150, 163, 185, 0.6), -6px -6px 14px rgba(255, 255, 255, 0.98);
+  --nm-shadow-btn: 4px 4px 10px rgba(150, 163, 185, 0.55), -4px -4px 10px rgba(255, 255, 255, 0.95);
+  --nm-shadow-inset: inset 3px 3px 7px rgba(145, 158, 180, 0.65), inset -3px -3px 7px rgba(255, 255, 255, 0.95);
+  --nm-shadow-inset-sm: inset 2px 2px 4px rgba(145, 158, 180, 0.55), inset -2px -2px 4px rgba(255, 255, 255, 0.9);
+}
+
+.dark {
+  --bg-body: #08090b;
+  --bg-panel: #111317;
+  --bg-card: #16191f;
+  --bg-inset: #0c0d11;
+  --border-panel: #222630;
+  --border-card: #282c38;
+  --border-subtle: #1e2129;
+  --border-inset: #1a1d25;
+  --text-main: #f8fafc;
+  --text-muted: #94a3b8;
+  --text-dim: #64748b;
+
+  /* Neumorphic shadow profiles - Dark Mode (Rich Dual-Axis Depth) */
+  --nm-shadow-panel: 10px 10px 24px rgba(0, 0, 0, 0.9), -3px -3px 12px rgba(255, 255, 255, 0.04);
+  --nm-shadow-card: 6px 6px 16px rgba(0, 0, 0, 0.8), -2px -2px 8px rgba(255, 255, 255, 0.03);
+  --nm-shadow-btn: 3px 3px 10px rgba(0, 0, 0, 0.7), -1px -1px 5px rgba(255, 255, 255, 0.025);
+  --nm-shadow-inset: inset 3px 3px 8px rgba(0, 0, 0, 0.95), inset -1px -1px 4px rgba(255, 255, 255, 0.05);
+  --nm-shadow-inset-sm: inset 2px 2px 5px rgba(0, 0, 0, 0.9), inset -1px -1px 3px rgba(255, 255, 255, 0.04);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  padding: 0;
+  background-color: var(--bg-body);
+  color: var(--text-main);
+  font-family: 'Inter', system-ui, -apple-system, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  transition: background-color 0.2s ease, color 0.2s ease;
+}
+
+/* ═══════════════════════════════════════════════════════════
+   CLEAR BOUNDARY NEUROMORPHIC SURFACES
+   ═══════════════════════════════════════════════════════════ */
+
+/* Major Panels (Consoles, Feeds, Queues) */
+.nm-panel {
+  background-color: var(--bg-panel);
+  box-shadow: var(--nm-shadow-panel);
+  border: 1px solid var(--border-panel);
+  position: relative;
+}
+
+/* Inner Cards / Items */
+.nm-card {
+  background-color: var(--bg-card);
+  box-shadow: var(--nm-shadow-card);
+  border: 1px solid var(--border-card);
+  transition: transform 0.15s ease, box-shadow 0.15s ease, border-color 0.15s ease;
+}
+
+.nm-card-interactive:hover {
+  transform: translateY(-1px);
+  border-color: var(--text-muted);
+}
+
+/* Inset / Debossed Areas (Inputs, Logs, Payloads) */
+.nm-inset {
+  background-color: var(--bg-inset);
+  box-shadow: var(--nm-shadow-inset);
+  border: 1px solid var(--border-inset);
+}
+
+.nm-inset-sm {
+  background-color: var(--bg-inset);
+  box-shadow: var(--nm-shadow-inset-sm);
+  border: 1px solid var(--border-inset);
+}
+
+/* Tactile Buttons */
+.nm-btn {
+  background-color: var(--bg-card);
+  box-shadow: var(--nm-shadow-btn);
+  border: 1px solid var(--border-card);
+  transition: all 0.12s ease;
+  user-select: none;
+}
+
+.nm-btn:hover {
+  border-color: var(--text-dim);
+}
+
+.nm-btn:active {
+  box-shadow: var(--nm-shadow-inset-sm);
+  transform: translateY(1px);
+}
+
+/* Primary High-Contrast Button */
+.nm-btn-primary {
+  background-color: var(--text-main);
+  color: var(--bg-body);
+  border: 1px solid var(--text-main);
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.25);
+  transition: all 0.12s ease;
+}
+
+.dark .nm-btn-primary {
+  box-shadow: 0 4px 16px rgba(255, 255, 255, 0.14);
+}
+
+.nm-btn-primary:active {
+  transform: scale(0.98);
+  opacity: 0.92;
+}
+
+/* Scrollbars */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: var(--bg-inset);
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--border-panel);
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--text-muted);
+}

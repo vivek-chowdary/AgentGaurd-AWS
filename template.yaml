@@ -1,0 +1,636 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: >
+  AgentGuard — The authorization layer for AI agents.
+  Intercepts, evaluates, and controls every AI agent tool call using Cedar policies,
+  Step Functions approval workflows, and real-time audit logging.
+
+Globals:
+  Function:
+    Runtime: python3.12
+    Architectures:
+      - x86_64
+    Environment:
+      Variables:
+        AUDIT_TABLE_NAME: !Ref AuditLogTable
+        APPROVALS_TABLE_NAME: !Ref PendingApprovalsTable
+        APPROVAL_WORKFLOW_ARN: !Sub "arn:aws:states:${AWS::Region}:${AWS::AccountId}:stateMachine:agentguard-approval-workflow"
+        SNS_TOPIC_ARN: !Ref ApprovalNotificationTopic
+        EVENT_BUS_NAME: !Ref AgentGuardEventBus
+        BEDROCK_MODEL_ID: !Ref BedrockModelId
+        AWS_ACCOUNT_ID_PARAM: !Ref AWS::AccountId
+        INTERCEPTOR_FUNCTION_NAME: agentguard-interceptor
+        EXECUTE_TOOL_FUNCTION_NAME: agentguard-execute-tool
+
+Parameters:
+  BedrockModelId:
+    Type: String
+    Default: us.amazon.nova-2-lite-v1:0
+    Description: Bedrock model ID for the agent
+
+  ApproverEmail:
+    Type: String
+    Default: vivekchow007@gmail.com
+    Description: Email address to receive approval notifications
+
+  StageName:
+    Type: String
+    Default: prod
+    Description: API Gateway stage name
+
+Resources:
+
+  # ============================================================
+  # API GATEWAY
+  # ============================================================
+  AgentGuardAPI:
+    Type: AWS::Serverless::Api
+    Properties:
+      Name: agentguard-api
+      StageName: !Ref StageName
+      Cors:
+        AllowMethods: "'GET,POST,PUT,DELETE,OPTIONS'"
+        AllowHeaders: "'Content-Type,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token'"
+        AllowOrigin: "'*'"
+        MaxAge: "'600'"
+      Auth:
+        DefaultAuthorizer: NONE
+
+  # ============================================================
+  # LAMBDA FUNCTIONS
+  # ============================================================
+
+  # --- Agent Runner: Runs the agent with Bedrock ---
+  AgentRunnerFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: agentguard-agent-runner
+      Handler: backend/agent/handler.lambda_handler
+      CodeUri: .
+      MemorySize: 512
+      Timeout: 120
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref AuditLogTable
+        - DynamoDBCrudPolicy:
+            TableName: !Ref PendingApprovalsTable
+        - Statement:
+            - Effect: Allow
+              Action:
+                - bedrock:InvokeModel
+                - bedrock:InvokeModelWithResponseStream
+              Resource: "*"
+        - Statement:
+            - Effect: Allow
+              Action:
+                - lambda:InvokeFunction
+              Resource:
+                - !GetAtt InterceptorFunction.Arn
+                - !GetAtt ExecuteToolFunction.Arn
+        - Statement:
+            - Effect: Allow
+              Action:
+                - states:StartExecution
+              Resource: !Sub "arn:aws:states:${AWS::Region}:${AWS::AccountId}:stateMachine:agentguard-approval-workflow"
+      Events:
+        RunAgent:
+          Type: Api
+          Properties:
+            RestApiId: !Ref AgentGuardAPI
+            Path: /agent/run
+            Method: POST
+
+  # --- Interceptor: Cedar policy evaluation + routing ---
+  InterceptorFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: agentguard-interceptor
+      Handler: backend/interceptor/handler.lambda_handler
+      CodeUri: .
+      MemorySize: 256
+      Timeout: 30
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref AuditLogTable
+        - DynamoDBCrudPolicy:
+            TableName: !Ref PendingApprovalsTable
+        - Statement:
+            - Effect: Allow
+              Action:
+                - states:StartExecution
+              Resource: !Sub "arn:aws:states:${AWS::Region}:${AWS::AccountId}:stateMachine:agentguard-approval-workflow"
+        - Statement:
+            - Effect: Allow
+              Action:
+                - events:PutEvents
+              Resource: !GetAtt AgentGuardEventBus.Arn
+        - Statement:
+            - Effect: Allow
+              Action:
+                - sns:Publish
+              Resource: !Ref ApprovalNotificationTopic
+
+  # --- Approvals: Handles approve/deny from dashboard ---
+  ApprovalsFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: agentguard-approvals
+      Handler: backend/approvals/handler.lambda_handler
+      CodeUri: .
+      MemorySize: 256
+      Timeout: 30
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref AuditLogTable
+        - DynamoDBCrudPolicy:
+            TableName: !Ref PendingApprovalsTable
+        - Statement:
+            - Effect: Allow
+              Action:
+                - states:SendTaskSuccess
+                - states:SendTaskFailure
+              Resource: "*"
+      Events:
+        GetPending:
+          Type: Api
+          Properties:
+            RestApiId: !Ref AgentGuardAPI
+            Path: /approvals/pending
+            Method: GET
+        ApproveAction:
+          Type: Api
+          Properties:
+            RestApiId: !Ref AgentGuardAPI
+            Path: /approvals/{id}/approve
+            Method: POST
+        DenyAction:
+          Type: Api
+          Properties:
+            RestApiId: !Ref AgentGuardAPI
+            Path: /approvals/{id}/deny
+            Method: POST
+
+  # --- Audit: Returns audit log to dashboard ---
+  AuditFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: agentguard-audit
+      Handler: backend/audit/handler.lambda_handler
+      CodeUri: .
+      MemorySize: 256
+      Timeout: 30
+      Policies:
+        - DynamoDBReadPolicy:
+            TableName: !Ref AuditLogTable
+      Events:
+        GetAuditLog:
+          Type: Api
+          Properties:
+            RestApiId: !Ref AgentGuardAPI
+            Path: /audit
+            Method: GET
+        GetAuditEntry:
+          Type: Api
+          Properties:
+            RestApiId: !Ref AgentGuardAPI
+            Path: /audit/{action_id}
+            Method: GET
+
+  # --- Policies: Returns Cedar policies ---
+  PoliciesFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: agentguard-policies
+      Handler: backend/policies/handler.lambda_handler
+      CodeUri: .
+      MemorySize: 256
+      Timeout: 30
+      Events:
+        GetPolicies:
+          Type: Api
+          Properties:
+            RestApiId: !Ref AgentGuardAPI
+            Path: /policies
+            Method: GET
+
+  # --- Execute Tool: Executes tool after Step Functions approval ---
+  ExecuteToolFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: agentguard-execute-tool
+      Handler: backend/approvals/execute_tool_handler.lambda_handler
+      CodeUri: .
+      MemorySize: 256
+      Timeout: 30
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref AuditLogTable
+        - DynamoDBCrudPolicy:
+            TableName: !Ref PendingApprovalsTable
+
+  # --- Log Result: Logs final results from Step Functions ---
+  LogResultFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: agentguard-log-result
+      Handler: backend/approvals/log_result_handler.lambda_handler
+      CodeUri: .
+      MemorySize: 256
+      Timeout: 30
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref AuditLogTable
+        - DynamoDBCrudPolicy:
+            TableName: !Ref PendingApprovalsTable
+
+  # ============================================================
+  # DYNAMODB TABLES
+  # ============================================================
+
+  AuditLogTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: agentguard-audit-log
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: action_id
+          AttributeType: S
+        - AttributeName: timestamp
+          AttributeType: S
+        - AttributeName: final_status
+          AttributeType: S
+      KeySchema:
+        - AttributeName: action_id
+          KeyType: HASH
+        - AttributeName: timestamp
+          KeyType: RANGE
+      GlobalSecondaryIndexes:
+        - IndexName: status-index
+          KeySchema:
+            - AttributeName: final_status
+              KeyType: HASH
+            - AttributeName: timestamp
+              KeyType: RANGE
+          Projection:
+            ProjectionType: ALL
+      TimeToLiveSpecification:
+        AttributeName: ttl
+        Enabled: true
+
+  PendingApprovalsTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: agentguard-pending-approvals
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: approval_id
+          AttributeType: S
+        - AttributeName: status
+          AttributeType: S
+        - AttributeName: created_at
+          AttributeType: S
+      KeySchema:
+        - AttributeName: approval_id
+          KeyType: HASH
+      GlobalSecondaryIndexes:
+        - IndexName: status-index
+          KeySchema:
+            - AttributeName: status
+              KeyType: HASH
+            - AttributeName: created_at
+              KeyType: RANGE
+          Projection:
+            ProjectionType: ALL
+      TimeToLiveSpecification:
+        AttributeName: ttl
+        Enabled: true
+
+  # ============================================================
+  # STEP FUNCTIONS — APPROVAL WORKFLOW
+  # ============================================================
+
+  ApprovalWorkflowRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: agentguard-stepfunctions-role
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: states.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: StepFunctionsExecutionPolicy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - lambda:InvokeFunction
+                Resource:
+                  - !GetAtt ExecuteToolFunction.Arn
+                  - !GetAtt LogResultFunction.Arn
+
+  ApprovalWorkflow:
+    Type: AWS::StepFunctions::StateMachine
+    Properties:
+      StateMachineName: agentguard-approval-workflow
+      RoleArn: !GetAtt ApprovalWorkflowRole.Arn
+      DefinitionString: !Sub |
+        {
+          "Comment": "AgentGuard Human Approval Workflow",
+          "StartAt": "WaitForApproval",
+          "States": {
+            "WaitForApproval": {
+              "Type": "Task",
+              "Resource": "arn:aws:states:::lambda:invoke.waitForTaskToken",
+              "Parameters": {
+                "FunctionName": "${ExecuteToolFunction.Arn}",
+                "Payload": {
+                  "action_id.$": "$.action_id",
+                  "tool_name.$": "$.tool_name",
+                  "tool_parameters.$": "$.tool_parameters",
+                  "approval_id.$": "$.approval_id",
+                  "task_token.$": "$$.Task.Token"
+                }
+              },
+              "TimeoutSeconds": 900,
+              "ResultPath": "$.approval_result",
+              "Next": "CheckDecision",
+              "Catch": [
+                {
+                  "ErrorEquals": ["States.Timeout"],
+                  "Next": "HandleTimeout",
+                  "ResultPath": "$.error"
+                }
+              ]
+            },
+            "CheckDecision": {
+              "Type": "Choice",
+              "Choices": [
+                {
+                  "Variable": "$.approval_result.decision",
+                  "StringEquals": "APPROVED",
+                  "Next": "ExecuteTool"
+                },
+                {
+                  "Variable": "$.approval_result.decision",
+                  "StringEquals": "DENIED",
+                  "Next": "RejectAndLog"
+                }
+              ],
+              "Default": "RejectAndLog"
+            },
+            "ExecuteTool": {
+              "Type": "Task",
+              "Resource": "arn:aws:states:::lambda:invoke",
+              "Parameters": {
+                "FunctionName": "${ExecuteToolFunction.Arn}",
+                "Payload": {
+                  "action": "execute",
+                  "action_id.$": "$.action_id",
+                  "tool_name.$": "$.tool_name",
+                  "tool_parameters.$": "$.tool_parameters",
+                  "approval_id.$": "$.approval_id",
+                  "approved_by.$": "$.approval_result.approved_by"
+                }
+              },
+              "ResultPath": "$.execution_result",
+              "Next": "LogSuccess"
+            },
+            "LogSuccess": {
+              "Type": "Task",
+              "Resource": "arn:aws:states:::lambda:invoke",
+              "Parameters": {
+                "FunctionName": "${LogResultFunction.Arn}",
+                "Payload": {
+                  "action": "log_success",
+                  "action_id.$": "$.action_id",
+                  "tool_name.$": "$.tool_name",
+                  "approval_id.$": "$.approval_id",
+                  "approved_by.$": "$.approval_result.approved_by",
+                  "execution_result.$": "$.execution_result"
+                }
+              },
+              "End": true
+            },
+            "RejectAndLog": {
+              "Type": "Task",
+              "Resource": "arn:aws:states:::lambda:invoke",
+              "Parameters": {
+                "FunctionName": "${LogResultFunction.Arn}",
+                "Payload": {
+                  "action": "log_rejection",
+                  "action_id.$": "$.action_id",
+                  "tool_name.$": "$.tool_name",
+                  "approval_id.$": "$.approval_id"
+                }
+              },
+              "End": true
+            },
+            "HandleTimeout": {
+              "Type": "Task",
+              "Resource": "arn:aws:states:::lambda:invoke",
+              "Parameters": {
+                "FunctionName": "${LogResultFunction.Arn}",
+                "Payload": {
+                  "action": "log_timeout",
+                  "action_id.$": "$.action_id",
+                  "tool_name.$": "$.tool_name",
+                  "approval_id.$": "$.approval_id"
+                }
+              },
+              "End": true
+            }
+          }
+        }
+
+  # ============================================================
+  # EVENTBRIDGE
+  # ============================================================
+
+  AgentGuardEventBus:
+    Type: AWS::Events::EventBus
+    Properties:
+      Name: agentguard-events
+
+  ApprovalRequiredRule:
+    Type: AWS::Events::Rule
+    Properties:
+      Name: agentguard-approval-required
+      EventBusName: !Ref AgentGuardEventBus
+      EventPattern:
+        source:
+          - agentguard.interceptor
+        detail-type:
+          - ApprovalRequired
+      Targets:
+        - Arn: !Ref ApprovalNotificationTopic
+          Id: SNSNotification
+
+  # ============================================================
+  # SNS
+  # ============================================================
+
+  ApprovalNotificationTopic:
+    Type: AWS::SNS::Topic
+    Properties:
+      TopicName: agentguard-approval-notifications
+      DisplayName: AgentGuard Approval Notifications
+
+  ApprovalNotificationSubscription:
+    Type: AWS::SNS::Subscription
+    Properties:
+      TopicArn: !Ref ApprovalNotificationTopic
+      Protocol: email
+      Endpoint: !Ref ApproverEmail
+
+  # SNS policy to allow EventBridge to publish
+  ApprovalNotificationTopicPolicy:
+    Type: AWS::SNS::TopicPolicy
+    Properties:
+      Topics:
+        - !Ref ApprovalNotificationTopic
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Sid: AllowEventBridgePublish
+            Effect: Allow
+            Principal:
+              Service: events.amazonaws.com
+            Action: sns:Publish
+            Resource: !Ref ApprovalNotificationTopic
+
+  # ============================================================
+  # S3
+  # ============================================================
+
+  AgentGuardBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub "agentguard-artifacts-${AWS::AccountId}-${AWS::Region}"
+      VersioningConfiguration:
+        Status: Enabled
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: AES256
+
+  # ============================================================
+  # COGNITO
+  # ============================================================
+
+  AgentGuardUserPool:
+    Type: AWS::Cognito::UserPool
+    Properties:
+      UserPoolName: agentguard-user-pool
+      AutoVerifiedAttributes:
+        - email
+      UsernameAttributes:
+        - email
+      Policies:
+        PasswordPolicy:
+          MinimumLength: 8
+          RequireLowercase: true
+          RequireNumbers: true
+          RequireSymbols: false
+          RequireUppercase: true
+
+  AgentGuardUserPoolClient:
+    Type: AWS::Cognito::UserPoolClient
+    Properties:
+      ClientName: agentguard-dashboard
+      UserPoolId: !Ref AgentGuardUserPool
+      ExplicitAuthFlows:
+        - ALLOW_USER_PASSWORD_AUTH
+        - ALLOW_REFRESH_TOKEN_AUTH
+        - ALLOW_USER_SRP_AUTH
+      GenerateSecret: false
+
+  # ============================================================
+  # CLOUDWATCH LOG GROUPS
+  # ============================================================
+
+  AgentRunnerLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: /aws/lambda/agentguard-agent-runner
+      RetentionInDays: 30
+
+  InterceptorLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: /aws/lambda/agentguard-interceptor
+      RetentionInDays: 30
+
+  ApprovalsLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: /aws/lambda/agentguard-approvals
+      RetentionInDays: 30
+
+  AuditLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: /aws/lambda/agentguard-audit
+      RetentionInDays: 30
+
+  PoliciesLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: /aws/lambda/agentguard-policies
+      RetentionInDays: 30
+
+  ExecuteToolLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: /aws/lambda/agentguard-execute-tool
+      RetentionInDays: 30
+
+  LogResultLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: /aws/lambda/agentguard-log-result
+      RetentionInDays: 30
+
+# ============================================================
+# OUTPUTS
+# ============================================================
+
+Outputs:
+  ApiUrl:
+    Description: API Gateway endpoint URL
+    Value: !Sub "https://${AgentGuardAPI}.execute-api.${AWS::Region}.amazonaws.com/${StageName}"
+
+  AuditLogTableName:
+    Description: DynamoDB Audit Log table name
+    Value: !Ref AuditLogTable
+
+  PendingApprovalsTableName:
+    Description: DynamoDB Pending Approvals table name
+    Value: !Ref PendingApprovalsTable
+
+  ApprovalWorkflowArn:
+    Description: Step Functions approval workflow ARN
+    Value: !Ref ApprovalWorkflow
+
+  SNSTopicArn:
+    Description: SNS topic ARN for approval notifications
+    Value: !Ref ApprovalNotificationTopic
+
+  EventBusName:
+    Description: EventBridge bus name
+    Value: !Ref AgentGuardEventBus
+
+  UserPoolId:
+    Description: Cognito User Pool ID
+    Value: !Ref AgentGuardUserPool
+
+  UserPoolClientId:
+    Description: Cognito User Pool Client ID
+    Value: !Ref AgentGuardUserPoolClient
+
+  S3BucketName:
+    Description: S3 bucket for artifacts
+    Value: !Ref AgentGuardBucket
