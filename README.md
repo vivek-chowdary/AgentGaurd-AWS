@@ -169,6 +169,52 @@ def guard_tool(tool_name: str, params: dict, agent_id: str = "customer-support-a
 
 ---
 
+## 🏢 Enterprise Adoption Guide: How Big Companies Use AgentGuard
+
+Large enterprises (**FinTech, Quick-Commerce like Blinkit, Healthcare, and SaaS**) face a massive barrier: **They cannot deploy autonomous agents without deterministic liability guardrails**. Prompt engineering alone fails compliance and security audits.
+
+AgentGuard solves this through a **Zero-Trust Enterprise Authorization Gateway (Hub & Spoke)**:
+
+```
+[Business Units / Microservices]
+┌───────────────────────────┐    ┌───────────────────────────┐    ┌───────────────────────────┐
+│   Customer Support Bot    │    │  Dark Store Replenishment │    │   Finance / Invoicing Bot │
+│   (LangChain / Bedrock)   │    │      (CrewAI / Python)    │    │     (Custom LLM API)      │
+└─────────────┬─────────────┘    └─────────────┬─────────────┘    └─────────────┬─────────────┘
+              │                                │                                │
+              └────────────────────────────────┼────────────────────────────────┘
+                                               │ (Zero-Trust Tool Interception)
+                                               ▼
+                              ┌──────────────────────────────────┐
+                              │     AgentGuard Central Gateway   │
+                              │     (API Gateway + Cedar Engine) │
+                              └────────────────┬─────────────────┘
+                                               │
+                       ┌───────────────────────┴───────────────────────┐
+                       ▼                                               ▼
+     ┌───────────────────────────────────┐           ┌───────────────────────────────────┐
+     │      AI / Development Teams       │           │      SecOps & Compliance Teams    │
+     │ - Write business prompts & tools  │           │ - Write mathematical Cedar rules  │
+     │ - Zero security boilerplate       │           │ - Live audit ledger (DynamoDB)    │
+     │ - Rapid autonomous iteration      │           │ - Real-time approval escalations  │
+     └───────────────────────────────────┘           └───────────────────────────────────┘
+```
+
+### 🎯 Enterprise Separation of Concerns
+1. **AI / Engineering Teams**: Build agents, prompts, and business tools freely without hardcoding complex compliance checks or worrying about catastrophic tool calls.
+2. **SecOps, Legal & Compliance Teams**: Control the **Cedar Policy Store** independently. They can tighten refund limits, block specific databases, or enforce multi-signature approvals on the fly with **zero downtime and zero agent redeployments**.
+
+### 💼 Real-World Enterprise Use Cases
+* **Quick Commerce & E-Commerce (e.g. Blinkit, Swiggy, Amazon)**: Auto-approve small item replacement refunds (≤ ₹500); hold large claims (₹500 - ₹5,000) in Step Functions for store manager sign-off; strictly forbid destructive order/customer database deletions.
+* **FinTech & Payments (e.g. Razorpay, Stripe, Revolut)**: Allow account reconciliation and draft invoice creation; enforce human multi-factor approval for outbound payouts or wire transfers; block any modification of KYC tables.
+* **Cloud Infrastructure & DevOps**: Allow agents to query CloudWatch metrics and restart dev containers; require director sign-off before terminating production clusters or modifying IAM roles.
+
+### 🛡️ Enterprise Compliance & Audit Readiness
+* **SOC2 & Regulatory Audit Trail**: Every single tool evaluation (ALLOW, REQUIRE_APPROVAL, or BLOCKED) is immutably recorded with timestamps, user session IDs, caller identities, risk classifications, and exact tool parameter payloads in DynamoDB.
+* **Deterministic Fail-Safe**: Cedar's formal logic guarantees that if an action does not match an explicit `permit` rule, it is **implicitly denied**. An explicit `forbid` rule permanently overrides everything.
+
+---
+
 ## ✍️ How to Author & Push Custom Cedar Policies
 
 **Cedar is completely dynamic — you can write rules for any tool, attribute, or context.**
