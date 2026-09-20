@@ -13,9 +13,20 @@ const EXAMPLE_PROMPTS = [
   { label: 'Delete Record', text: 'Delete customer record C789', outcome: 'BLOCK' },
 ];
 
+const getSafeSessionId = () => {
+  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+    return crypto.randomUUID();
+  }
+  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {
+    const r = (Math.random() * 16) | 0;
+    const v = c === 'x' ? r : (r & 0x3) | 0x8;
+    return v.toString(16);
+  });
+};
+
 export default function AgentConsole() {
   const [input, setInput] = useState('');
-  const [sessionId] = useState(() => crypto.randomUUID());
+  const [sessionId] = useState(() => getSafeSessionId());
   const [messages, setMessages] = useState([]);
   const queryClient = useQueryClient();
 
